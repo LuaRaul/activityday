@@ -26,7 +26,14 @@ const tasks = ref([]),
   frequency = ref("Diária"),
   dueDate = ref(""),
   reminderTime = ref(""),
-  priority = ref("Normal");
+  priority = ref("Normal"),
+  templateTaskId = ref(""),
+  generatorDaily = ref(3),
+  generatorWeekly = ref(5),
+  generatorMonthly = ref(10),
+  generatorCategory = ref("Todas"),
+  generatedPlan = ref([]),
+  generatorBusy = ref(false);
 const filter = ref("Todas"),
   search = ref(""),
   calendarMonth = ref(new Date()),
@@ -47,6 +54,78 @@ const cats = [
   ["Sociais", "🤝"],
   ["Lazer", "🎯"],
 ];
+const availableCategories = computed(() => [...new Set([...cats.map(c => c[0]), ...tasks.value.map(t => t.category).filter(Boolean)])]);
+const categoryTemplates = computed(() => tasks.value.filter(t => !t.done && (!category.value || t.category === category.value)));
+function applyTemplate() {
+  const template = tasks.value.find(t => String(t.id) === String(templateTaskId.value));
+  if (!template) return;
+  title.value = template.title || "";
+  category.value = template.category || "Pessoais";
+  frequency.value = ["Diária", "Semanal", "Mensal"].includes(template.frequency) ? template.frequency : "Única";
+  priority.value = template.priority || "Normal";
+  reminderTime.value = template.reminder_time ? String(template.reminder_time).slice(0, 5) : "";
+  notify("Dados da actividade existente carregados. Podes editar antes de guardar.", "info");
+}
+function localDatePlus(days) {
+  const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + days); return fmt(d);
+}
+function generateLocalPlan() {
+  if (!user.value) return notify("Inicia sessão para gerar um plano.", "error");
+  const counts = { daily: Math.max(0, Math.min(10, Number(generatorDaily.value) || 0)), weekly: Math.max(0, Math.min(30, Number(generatorWeekly.value) || 0)), monthly: Math.max(0, Math.min(60, Number(generatorMonthly.value) || 0)) };
+  const available = tasks.value.filter(t => generatorCategory.value === "Todas" || t.category === generatorCategory.value);
+  const seeds = [
+    { title: "Planear as prioridades do dia", category: "Pessoais" },
+    { title: "Organizar o espaço pessoal", category: "Casa" },
+    { title: "Rever objectivos e progresso", category: "Pessoais" },
+    { title: "Dedicar tempo à família", category: "Familiares" },
+    { title: "Estudar ou aprender algo novo", category: "Educacionais" },
+    { title: "Fazer uma pausa para cuidar da saúde", category: "Saúde" },
+    { title: "Rever despesas e orçamento", category: "Financeiras" },
+    { title: "Organizar tarefas de trabalho", category: "Laborais" },
+    { title: "Contactar alguém importante", category: "Sociais" },
+    { title: "Reservar tempo para lazer", category: "Lazer" },
+    { title: "Reflectir ou meditar", category: "Espirituais" },
+  ];
+  const suggestions = [];
+  const pick = (index, preferredCategory) => {
+    const eligible = available.filter(t => !suggestions.some(p => p.title.toLowerCase() === String(t.title).toLowerCase()) && (!preferredCategory || t.category === preferredCategory));
+    if (eligible.length) return eligible[index % eligible.length];
+    const seedPool = seeds.filter(t => (generatorCategory.value === "Todas" || t.category === generatorCategory.value) && !suggestions.some(p => p.title.toLowerCase() === t.title.toLowerCase()));
+    if (seedPool.length) return seedPool[index % seedPool.length];
+    return { title: `Actividade sugerida ${suggestions.length + 1}`, category: generatorCategory.value === "Todas" ? "Pessoais" : generatorCategory.value };
+  };
+  const add = (count, freq, period, spread) => {
+    for (let i = 0; i < count; i++) {
+      const base = pick(i, null);
+      const dateOffset = spread === 0 ? 0 : Math.floor((i * spread) / Math.max(count, 1));
+      const due_date = localDatePlus(dateOffset);
+      suggestions.push({ title: base.title, category: base.category || "Pessoais", frequency: freq, due_date, reminder_time: null, priority: base.priority || "Normal", done: false, period, _key: `${period}-${i}` });
+    }
+  };
+  add(counts.daily, "Diária", "Diária", 0);
+  add(counts.weekly, "Semanal", "Semanal", 6);
+  add(counts.monthly, "Mensal", "Mensal", 29);
+  // Evita sugerir uma actividade com o mesmo título e data já existente ou já proposta.
+  const seen = new Set();
+  generatedPlan.value = suggestions.filter(item => {
+    const key = `${item.title.toLowerCase()}|${item.due_date}`;
+    if (seen.has(key) || tasks.value.some(t => String(t.title).toLowerCase() === item.title.toLowerCase() && t.due_date === item.due_date && !t.done)) return false;
+    seen.add(key); return true;
+  });
+  notify(`Plano local preparado: ${generatedPlan.value.length} actividade(s) para rever antes de guardar.`, "success");
+}
+function removeGenerated(index) { generatedPlan.value.splice(index, 1); }
+async function saveGeneratedPlan() {
+  if (!generatedPlan.value.length) return notify("Gera primeiro um plano ou adiciona actividades à pré-visualização.", "error");
+  generatorBusy.value = true;
+  const rows = generatedPlan.value.map(({ period, _key, ...item }) => ({ ...item, user_id: user.value.id }));
+  const { data, error } = await supabase.from("activities").insert(rows).select();
+  generatorBusy.value = false;
+  if (error) return notify(`Não foi possível guardar o plano: ${error.message}`, "error");
+  tasks.value = [...(data || []), ...tasks.value];
+  generatedPlan.value = [];
+  notify(`${(data || []).length} actividade(s) guardada(s) com sucesso.`, "success");
+}
 const authTitle = computed(
   () =>
     ({
@@ -741,6 +820,24 @@ onBeforeUnmount(() => {
           <section class="panel"><div class="row"><h3>Esta semana</h3><RouterLink class="text-link" to="/calendar">Calendário</RouterLink></div><div class="week-summary"><div><strong>{{ weekTasks.length }}</strong><span>com data esta semana</span></div><div><strong>{{ weekCompleted }}</strong><span>concluídas</span></div><div><strong>{{ weekTasks.length - weekCompleted }}</strong><span>por concluir</span></div></div><div v-if="overdueTasks.length" class="overdue-preview"><h4>Precisam de atenção</h4><p v-for="t in overdueTasks.slice(0, 3)" :key="t.id">{{ t.title }} <span>· {{ t.due_date }}</span></p><RouterLink class="text-link" to="/activities">Rever actividades em atraso</RouterLink></div><div v-else class="empty compact-empty">Nenhuma actividade atrasada. Continua assim!</div></section>
         </div>
       </section>
+      <section v-if="view === 'tasks'" class="panel local-ai-panel">
+        <div class="row ai-heading"><div><span class="eyebrow">PLANEAMENTO INTELIGENTE LOCAL</span><h2>Gerar plano de actividades</h2><p class="muted">Usa as tuas actividades existentes e regras locais para propor um plano. Não usa API externa de IA.</p></div><span class="ai-mark">✦ IA</span></div>
+        <div class="generator-fields">
+          <label>Por dia<input v-model.number="generatorDaily" class="field" type="number" min="0" max="10" /></label>
+          <label>Por semana<input v-model.number="generatorWeekly" class="field" type="number" min="0" max="30" /></label>
+          <label>Por mês<input v-model.number="generatorMonthly" class="field" type="number" min="0" max="60" /></label>
+          <label>Categoria preferida<select v-model="generatorCategory" class="field"><option value="Todas">Todas as categorias</option><option v-for="c in availableCategories" :key="c" :value="c">{{ c }}</option></select></label>
+        </div>
+        <div class="row generator-actions"><p class="muted">Configuração inicial: 3 diárias, 5 semanais e 10 mensais. Revê as datas e títulos antes de guardar.</p><button class="btn" type="button" @click="generateLocalPlan">✦ Gerar plano</button></div>
+        <div v-if="generatedPlan.length" class="generated-preview">
+          <div class="row"><h3>Pré-visualização do plano</h3><span class="pill">{{ generatedPlan.length }} sugestões</span></div>
+          <article v-for="(item, index) in generatedPlan" :key="item._key" class="generated-item">
+            <div class="generated-item-fields"><input v-model="item.title" class="field" aria-label="Título da actividade gerada"/><select v-model="item.category" class="field" aria-label="Categoria gerada"><option v-for="c in availableCategories" :key="c">{{ c }}</option></select><input v-model="item.due_date" type="date" class="field" aria-label="Data da actividade gerada"/><select v-model="item.frequency" class="field" aria-label="Frequência gerada"><option>Diária</option><option>Semanal</option><option>Mensal</option><option>Única</option></select></div>
+            <button class="linkbtn" type="button" @click="removeGenerated(index)">Remover</button>
+          </article>
+          <div class="row generator-save"><span class="muted">Só serão guardadas as sugestões que permanecerem nesta lista.</span><button class="btn" type="button" :disabled="generatorBusy" @click="saveGeneratedPlan">{{ generatorBusy ? 'A guardar…' : 'Confirmar e guardar plano' }}</button></div>
+        </div>
+      </section>
       <section v-if="view === 'tasks'" class="panel">
         <h2>Nova actividade</h2>
         <p class="muted">As actividades diárias, semanais ou mensais com data definida criam a próxima ocorrência quando as marcas como concluídas.</p>
@@ -750,9 +847,12 @@ onBeforeUnmount(() => {
             class="field titlefield"
             placeholder="O que precisas de fazer?"
             required
-          /><select v-model="category" class="field">
-            <option v-for="c in cats" :key="c[0]">{{ c[0] }}</option></select
-          ><select v-model="frequency" class="field">
+          /><select v-model="category" class="field" aria-label="Categoria da actividade">
+            <option v-for="c in availableCategories" :key="c">{{ c }}</option></select
+          ><select v-model="templateTaskId" class="field" @change="applyTemplate" aria-label="Usar actividade existente como modelo">
+            <option value="">Usar actividade existente (opcional)</option>
+            <option v-for="t in categoryTemplates" :key="t.id" :value="String(t.id)">{{ t.category }} · {{ t.title }}</option>
+          </select><select v-model="frequency" class="field">
             <option>Diária</option>
             <option>Semanal</option>
             <option>Mensal</option>
