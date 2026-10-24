@@ -160,3 +160,12 @@ Se estiveres a testar localmente, cria um `.env` local (não o publiques) com `V
 3. Fecha o separador/site (não basta navegar para outra rota) e aguarda a hora prevista.
 4. Confirma que chega uma notificação e que clicar nela abre `/reminders`.
 5. Verifica os logs da função agendada no Netlify se não chegar. Confirma também as variáveis, a migração SQL, as permissões do navegador e que a hora do dispositivo está correcta.
+
+
+## Actualização visual profissional (24/10/2026)
+- Actualização do sistema visual global com paleta azul, cartões, botões, campos e espaçamentos consistentes.
+- Navegação reorganizada para experiência de aplicação mobile: barra inferior fixa com Painel, Actividades, Hábitos, Calendário e menu Mais.
+- O menu Mais contém Metas, Relatórios, Lembretes, Conta e privacidade e Exportar JSON.
+- Em ecrãs maiores, a navegação apresenta-se como uma barra horizontal.
+- Melhorias de foco visível, estados hover, áreas de toque e adaptação a ecrãs pequenos.
+- As rotas, a lógica de negócio e as integrações existentes foram preservadas.

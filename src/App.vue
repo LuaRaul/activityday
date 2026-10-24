@@ -705,16 +705,21 @@ onBeforeUnmount(() => {
       <div class="progress">
         <div class="bar" :style="{ width: progress + '%' }"></div>
       </div>
-      <nav class="tabs" aria-label="Navegação principal">
-        <RouterLink class="tab" :class="{ active: view === 'dashboard' }" to="/dashboard">Painel</RouterLink>
-        <RouterLink class="tab" :class="{ active: view === 'tasks' }" to="/activities">Actividades</RouterLink>
-        <RouterLink class="tab" :class="{ active: view === 'habits' }" to="/habits">Hábitos</RouterLink>
-        <RouterLink class="tab" :class="{ active: view === 'goals' }" to="/goals">Metas</RouterLink>
-        <RouterLink class="tab" :class="{ active: view === 'reports' }" to="/reports">Relatórios</RouterLink>
-        <RouterLink class="tab" :class="{ active: view === 'calendar' }" to="/calendar">Calendário</RouterLink>
-        <RouterLink class="tab" :class="{ active: view === 'reminders' }" to="/reminders">Lembretes</RouterLink>
-        <RouterLink class="tab" :class="{ active: view === 'account' }" to="/account">Conta e privacidade</RouterLink>
-        <RouterLink class="tab" :class="{ active: view === 'export' }" to="/export">Exportar JSON</RouterLink>
+      <nav class="tabs app-navigation" aria-label="Navegação principal">
+        <RouterLink class="tab nav-primary" :class="{ active: view === 'dashboard' }" to="/dashboard"><span class="nav-icon">⌂</span><span>Painel</span></RouterLink>
+        <RouterLink class="tab nav-primary" :class="{ active: view === 'tasks' }" to="/activities"><span class="nav-icon">✓</span><span>Actividades</span></RouterLink>
+        <RouterLink class="tab nav-primary" :class="{ active: view === 'habits' }" to="/habits"><span class="nav-icon">↗</span><span>Hábitos</span></RouterLink>
+        <RouterLink class="tab nav-primary" :class="{ active: view === 'calendar' }" to="/calendar"><span class="nav-icon">▦</span><span>Calendário</span></RouterLink>
+        <details class="nav-more">
+          <summary class="tab" :class="{ active: ['goals','reports','reminders','account','export'].includes(view) }"><span class="nav-icon">•••</span><span>Mais</span></summary>
+          <div class="nav-more-menu">
+            <RouterLink class="tab" :class="{ active: view === 'goals' }" to="/goals">Metas</RouterLink>
+            <RouterLink class="tab" :class="{ active: view === 'reports' }" to="/reports">Relatórios</RouterLink>
+            <RouterLink class="tab" :class="{ active: view === 'reminders' }" to="/reminders">Lembretes</RouterLink>
+            <RouterLink class="tab" :class="{ active: view === 'account' }" to="/account">Conta e privacidade</RouterLink>
+            <RouterLink class="tab" :class="{ active: view === 'export' }" to="/export">Exportar JSON</RouterLink>
+          </div>
+        </details>
       </nav>
       <section v-if="view === 'dashboard'" class="dashboard-view">
         <div class="dashboard-heading">
