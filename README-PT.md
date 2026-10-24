@@ -1,47 +1,52 @@
-# ActivityDay — versão Supabase
+# ActivityDay — migração Vue 3
 
-## O que inclui
-- Login, criação de conta, logout e recuperação/alteração de palavra-passe com Supabase Auth. O link de recuperação abre um formulário próprio antes de voltar ao login.
-- Actividades em PostgreSQL, com políticas RLS para isolar os dados por utilizador.
-- Sincronização entre dispositivos e actualizações em tempo real (Realtime deve estar activado para `public.activities` no Supabase).
-- Categorias, frequência, estado, prioridade, data prevista, calendário mensal e lembretes do navegador.
-- Exportação JSON e eliminação das próprias actividades.
-- PWA básica (manifest + service worker).
+Aplicação migrada para Vue 3 + Vite, Vue Router, Pinia e Supabase JS.
 
-## Instalação
-1. No Supabase, abre SQL Editor, cola `supabase_setup.sql` e executa.
-2. Em Project Settings → API Keys / Data API, copia o Project URL e a publishable key (ou anon public key antiga). **Nunca uses `service_role` ou `sb_secret_` no browser.**
-3. Abre `https://activityday.netlify.app/`. A primeira vez, o ecrã “Ligar ao Supabase” pede o URL e a chave pública. Essa configuração fica guardada no navegador. Para configurar noutro dispositivo, repete este passo.
-4. Em Supabase → Authentication → URL Configuration:
-   - Site URL: `https://activityday.netlify.app`
-   - Redirect URLs: `https://activityday.netlify.app/**`
-5. Em Authentication → Providers, confirma que Email está activo. Para recuperação de palavra-passe, confirma que o URL de redireccionamento é permitido. O e-mail padrão do Supabase pode ter limites baixos; configura SMTP próprio para produção.
-6. Para sincronização em tempo real, abre Database → Publications/Realtime e activa a tabela `public.activities` para Postgres Changes, caso ainda não esteja activa.
-7. Envia os ficheiros desta pasta para o Netlify, substituindo os ficheiros da versão antiga. O `index.html` deve ficar na raiz publicada. Depois de publicar, solicita um novo e-mail de recuperação e testa o fluxo completo.
+## Funcionalidades implementadas nesta migração
+- Login, criação de conta, recuperação de palavra-passe e definição de nova palavra-passe.
+- Gestão de actividades: criar, concluir, apagar, pesquisar e filtrar.
+- Categorias, frequência, prioridade, data e hora.
+- Dashboard com contagem e progresso.
+- Calendário mensal.
+- Exportação de actividades para JSON.
+- Lembretes do navegador enquanto a aplicação está aberta e permissão de notificações.
+- Actualizações em tempo real via Supabase Realtime (activar para `public.activities` no painel Supabase).
+- Selecção múltipla e eliminação em lote.
+- Área de conta e privacidade, envio de link para alteração de palavra-passe e eliminação das actividades do utilizador.
+- Supabase Auth e tabela `public.activities` com RLS.
+- Netlify com fallback SPA para rotas.
 
-## Segurança
-- A publishable/anon key é pública por desenho; a segurança depende das políticas RLS do SQL.
-- Nunca coloques `service_role` ou `sb_secret_` no código público.
-- Usa palavras-passe únicas e fortes. Para uma aplicação com dados sensíveis, considera MFA e revisão de segurança.
-- O botão “Apagar todas as minhas actividades” apaga as tarefas, não a conta de autenticação.
-- Não há função administrativa para apagar utilizadores no browser; isso exigiria fluxo server-side seguro.
+## Publicação no Netlify
+- Build command: `npm run build`
+- Publish directory: `dist`
+- Node: versão compatível com Vite 7 (Node 20.19+ ou 22.12+).
+- `netlify.toml` já contém as definições e o fallback para SPA.
 
-## Limitações honestas
-- Notificações do navegador só são verificadas enquanto a aplicação está aberta. Notificações push quando a app está fechada requerem um serviço push/servidor adicional.
-- A sincronização precisa de ligação à Internet; não existe ainda fila offline para sincronizar alterações feitas sem rede.
-- A configuração do projecto é guardada localmente no navegador, por isso deve ser configurada em cada dispositivo. As actividades e a conta sincronizam pela nuvem.
-- O link de recuperação deve ser testado após configurar os Redirect URLs e o envio de e-mail.
+## Configuração Supabase
+O URL e a chave publishable pública foram mantidos a partir do projecto fornecido em `src/supabase.js`. A publishable/anon key é pública por desenho. Nunca colocar `service_role` ou `sb_secret` no frontend.
+Para configurar via variáveis do Netlify, define:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
 
+Se já existe a tabela `public.activities`, mantém a tabela e os utilizadores existentes. Não executes SQL destrutivo. Consulta `supabase_setup.sql` do projecto original apenas se precisares de criar a tabela.
 
-## Publicar para todos os visitantes (importante)
+## Antes de substituir o site actual
+1. Testar localmente com `npm install` e `npm run dev`.
+2. Executar `npm run build`.
+3. Testar login, registo, reset password e CRUD com uma conta de teste.
+4. Confirmar RLS em `public.activities` e Realtime, se necessário.
+5. Publicar primeiro numa branch de preview ou num site de preview do Netlify.
+6. Só depois promover para produção.
 
-A configuração do Supabase deve ficar no ficheiro `config.js`, e não apenas no `localStorage` de um navegador.
+## Limitações desta primeira migração
+Esta versão preserva as principais funções de autenticação, tarefas, categorias, calendário e exportação. As sugestões iniciais automáticas da versão original ainda não foram reconstruídas nesta migração. Os lembretes dependem de a aplicação estar aberta e da permissão de notificações do navegador. O Realtime depende de `public.activities` estar activada na publicação Realtime do Supabase. Testar todas as operações com uma conta de teste antes de publicar em produção.
 
-1. Abra `config.js` num editor de texto.
-2. Na propriedade `key`, substitua `COLOCA_AQUI_A_TUA_CHAVE_SB_PUBLISHABLE_OU_ANON_PUBLIC` pela chave pública `sb_publishable_...` (ou a antiga `anon` pública) do projecto Supabase.
-3. Confirme que o URL é `https://ijnheozmhnhnkvvwrcux.supabase.co`.
-4. Não use `service_role` nem `sb_secret_` no frontend.
-5. Faça deploy de todos os ficheiros, incluindo `config.js`, com `index.html` na raiz.
-6. Depois do deploy, abra o site numa janela anónima. Com a chave configurada, deve aparecer o login, não o ecrã de configuração.
+## Navegação por rotas
+A navegação está separada em URLs próprias:
+- `/activities` — criar, pesquisar, filtrar, concluir e apagar actividades.
+- `/calendar` — calendário mensal com actividades por data.
+- `/reminders` — activar notificações do navegador e consultar próximas actividades.
+- `/account` — privacidade, pedido de link para alterar palavra-passe, exportação e eliminação de actividades.
+- `/export` — resumo e descarga das actividades em JSON.
 
-Se o navegador continuar a mostrar a versão antiga, faça uma actualização forçada (Ctrl+F5) ou limpe os dados do site.
+O `netlify.toml` inclui fallback para `index.html`, necessário para abrir directamente estas rotas ou actualizar a página. Exportar JSON passou a ter uma página própria com um botão explícito para descarregar o ficheiro.
