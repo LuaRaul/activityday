@@ -1,0 +1,17 @@
+{
+  "name": "ActivityDay — Minhas actividades",
+  "short_name": "ActivityDay",
+  "description": "Organiza e sincroniza actividades pessoais.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f6fb",
+  "theme_color": "#172554",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
