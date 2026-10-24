@@ -1,0 +1,316 @@
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { useRoute, RouterLink } from "vue-router";
+import { supabase } from "./supabase";
+const route = useRoute();
+const view = computed(() => ({ "/activities": "tasks", "/calendar": "calendar", "/reminders": "reminders", "/account": "account", "/export": "export" }[route.path] || "tasks"));
+const user = ref(null),
+  loading = ref(true),
+  busy = ref(false),
+  message = ref(""),
+  messageType = ref("");
+const authMode = ref("login"),
+  email = ref(""),
+  password = ref(""),
+  confirmPassword = ref("");
+const tasks = ref([]),
+  title = ref(""),
+  category = ref("Pessoais"),
+  frequency = ref("Diária"),
+  dueDate = ref(""),
+  reminderTime = ref(""),
+  priority = ref("Normal");
+const filter = ref("Todas"),
+  search = ref(""),
+  calendarMonth = ref(new Date()),
+  notificationsAllowed = ref(typeof Notification !== "undefined" && Notification.permission === "granted"),
+  selectedTasks = ref([]),
+  realtimeChannel = ref(null),
+  reminderTimer = ref(null),
+  notifiedReminders = new Set();
+const cats = [
+  ["Pessoais", "👤"],
+  ["Familiares", "❤️"],
+  ["Educacionais", "📚"],
+  ["Espirituais", "🙏"],
+  ["Laborais", "💼"],
+  ["Saúde", "✚"],
+  ["Financeiras", "💰"],
+  ["Casa", "🏠"],
+  ["Sociais", "🤝"],
+  ["Lazer", "🎯"],
+];
+const authTitle = computed(
+  () =>
+    ({
+      login: "Entrar na tua conta",
+      signup: "Criar conta",
+      reset: "Recuperar palavra-passe",
+      update: "Definir nova palavra-passe",
+    }[authMode.value])
+);
+const authSub = computed(
+  () =>
+    ({
+      login: "Usa o teu e-mail e palavra-passe.",
+      signup: "Cria uma conta para sincronizar os teus dispositivos.",
+      reset: "Enviaremos um link para o teu e-mail.",
+      update: "Escolhe uma nova palavra-passe segura.",
+    }[authMode.value])
+);
+const filtered = computed(() =>
+  tasks.value.filter(
+    (t) =>
+      (filter.value === "Todas" || t.category === filter.value) &&
+      (!search.value || t.title.toLowerCase().includes(search.value.toLowerCase()))
+  )
+);
+const completed = computed(() => tasks.value.filter((t) => t.done).length);
+const progress = computed(() =>
+  tasks.value.length ? Math.round((completed.value / tasks.value.length) * 100) : 0
+);
+const monthLabel = computed(() =>
+  calendarMonth.value.toLocaleDateString("pt-PT", { month: "long", year: "numeric" })
+);
+const calendarDays = computed(() => {
+  const d = new Date(
+    calendarMonth.value.getFullYear(),
+    calendarMonth.value.getMonth(),
+    1
+  );
+  const offset = (d.getDay() + 6) % 7;
+  const start = new Date(d);
+  start.setDate(d.getDate() - offset);
+  return Array.from({ length: 42 }, (_, i) => {
+    const x = new Date(start);
+    x.setDate(start.getDate() + i);
+    const iso = fmt(x);
+    return {
+      iso,
+      day: x.getDate(),
+      other: x.getMonth() !== calendarMonth.value.getMonth(),
+      items: tasks.value.filter((t) => t.due_date === iso),
+    };
+  });
+});
+function fmt(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+function notify(text, type = "info") {
+  message.value = text;
+  messageType.value = type;
+}
+function mode(m) {
+  authMode.value = m;
+  password.value = "";
+  confirmPassword.value = "";
+  notify("");
+}
+async function loadTasks() {
+  const { data, error } = await supabase
+    .from("activities")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) notify(error.message, "error");
+  else tasks.value = data || [];
+}
+async function authSubmit() {
+  if (busy.value) return;
+  busy.value = true;
+  notify("");
+  try {
+    if (authMode.value === "login") {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.value,
+        password: password.value,
+      });
+      if (error) throw error;
+    } else if (authMode.value === "signup") {
+      if (password.value !== confirmPassword.value)
+        throw Error("As palavras-passe não coincidem.");
+      const { error } = await supabase.auth.signUp({
+        email: email.value,
+        password: password.value,
+        options: { emailRedirectTo: location.origin },
+      });
+      if (error) throw error;
+      notify("Conta criada. Verifica o teu e-mail para confirmar o registo.", "success");
+      authMode.value = "login";
+    } else if (authMode.value === "reset") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.value, {
+        redirectTo: location.origin,
+      });
+      if (error) throw error;
+      notify("Enviámos um link de recuperação para o teu e-mail.", "success");
+    } else {
+      if (password.value !== confirmPassword.value)
+        throw Error("As palavras-passe não coincidem.");
+      if (password.value.length < 6) throw Error("Usa pelo menos 6 caracteres.");
+      const { error } = await supabase.auth.updateUser({ password: password.value });
+      if (error) throw error;
+      await supabase.auth.signOut();
+      history.replaceState(null, "", location.pathname);
+      mode("login");
+      notify("Palavra-passe alterada. Entra com a nova palavra-passe.", "success");
+    }
+  } catch (e) {
+    notify(e.message || "Ocorreu um erro.", "error");
+  } finally {
+    busy.value = false;
+  }
+}
+async function saveTask() {
+  if (!title.value.trim()) return notify("Escreve o nome da actividade.", "error");
+  const row = {
+    user_id: user.value.id,
+    title: title.value.trim(),
+    category: category.value,
+    frequency: frequency.value,
+    done: false,
+    due_date: dueDate.value || null,
+    reminder_time: reminderTime.value || null,
+    priority: priority.value,
+  };
+  const { data, error } = await supabase.from("activities").insert(row).select().single();
+  if (error) notify(error.message, "error");
+  else {
+    tasks.value.unshift(data);
+    title.value = "";
+    dueDate.value = "";
+    reminderTime.value = "";
+    notify("Actividade guardada.", "success");
+  }
+}
+async function toggleTask(t) {
+  const { data, error } = await supabase
+    .from("activities")
+    .update({ done: !t.done })
+    .eq("id", t.id)
+    .select()
+    .single();
+  if (error) notify(error.message, "error");
+  else Object.assign(t, data);
+}
+async function deleteTask(t) {
+  if (!confirm(`Apagar "${t.title}"?`)) return;
+  const { error } = await supabase.from("activities").delete().eq("id", t.id);
+  if (error) notify(error.message, "error");
+  else tasks.value = tasks.value.filter((x) => x.id !== t.id);
+}
+async function deleteSelectedTasks() {
+  if (!selectedTasks.value.length) return notify("Selecciona pelo menos uma actividade.", "error");
+  if (!confirm(`Apagar ${selectedTasks.value.length} actividade(s) seleccionada(s)?`)) return;
+  const ids = [...selectedTasks.value];
+  const { error } = await supabase.from("activities").delete().in("id", ids);
+  if (error) return notify(error.message, "error");
+  tasks.value = tasks.value.filter((t) => !ids.includes(t.id));
+  selectedTasks.value = [];
+  notify("Actividades seleccionadas apagadas.", "success");
+}
+async function deleteAllTasks() {
+  if (!tasks.value.length) return notify("Não existem actividades para apagar.", "error");
+  if (!confirm("Tens a certeza de que pretendes apagar permanentemente todas as tuas actividades?")) return;
+  const { error } = await supabase.from("activities").delete().eq("user_id", user.value.id);
+  if (error) return notify(error.message, "error");
+  tasks.value = [];
+  selectedTasks.value = [];
+  notify("Todas as tuas actividades foram apagadas.", "success");
+}
+async function enableNotifications() {
+  if (!("Notification" in window)) return notify("Este navegador não suporta notificações.", "error");
+  const permission = await Notification.requestPermission();
+  notificationsAllowed.value = permission === "granted";
+  notify(notificationsAllowed.value ? "Notificações activadas neste navegador." : "As notificações não foram autorizadas.", notificationsAllowed.value ? "success" : "error");
+}
+async function sendPasswordReset() {
+  if (!user.value?.email) return notify("Não foi possível identificar o e-mail da conta.", "error");
+  const { error } = await supabase.auth.resetPasswordForEmail(user.value.email, { redirectTo: location.origin });
+  if (error) notify(error.message, "error");
+  else notify("Enviámos um link para alterar a palavra-passe para o teu e-mail.", "success");
+}
+const upcomingTasks = computed(() => {
+  const now = new Date();
+  const today = fmt(now);
+  return tasks.value.filter((t) => !t.done && t.due_date && t.due_date >= today)
+    .sort((a, b) => (a.due_date + (a.reminder_time || "23:59")).localeCompare(b.due_date + (b.reminder_time || "23:59")))
+    .slice(0, 10);
+});
+function checkReminders() {
+  if (!notificationsAllowed.value || document.visibilityState === "hidden") return;
+  const now = new Date();
+  tasks.value.forEach((t) => {
+    if (t.done || !t.due_date || !t.reminder_time) return;
+    const target = new Date(`${t.due_date}T${t.reminder_time}`);
+    const key = `${t.id}:${t.due_date}:${t.reminder_time}`;
+    if (target <= now && now - target < 60000 && !notifiedReminders.has(key)) {
+      new Notification("ActivityDay — lembrete", { body: t.title });
+      notifiedReminders.add(key);
+    }
+  });
+}
+function subscribeRealtime() {
+  if (!user.value) return;
+  if (realtimeChannel.value) supabase.removeChannel(realtimeChannel.value);
+  realtimeChannel.value = supabase.channel(`activities-${user.value.id}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "activities", filter: `user_id=eq.${user.value.id}` }, () => loadTasks())
+    .subscribe();
+}
+async function logout() {
+  await supabase.auth.signOut();
+  user.value = null;
+  tasks.value = [];
+  mode("login");
+}
+function moveMonth(n) {
+  calendarMonth.value = new Date(
+    calendarMonth.value.getFullYear(),
+    calendarMonth.value.getMonth() + n,
+    1
+  );
+}
+function exportJson() {
+  const blob = new Blob([JSON.stringify(tasks.value, null, 2)], {
+    type: "application/json",
+  });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "activityday-actividades.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+let authSubscription;
+onMounted(async () => {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  if (hash.get("type") === "recovery") authMode.value = "update";
+  const { data } = await supabase.auth.getSession();
+  user.value = data.session?.user || null;
+  if (user.value) {
+    await loadTasks();
+    subscribeRealtime();
+  }
+  reminderTimer.value = window.setInterval(checkReminders, 15000);
+  const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
+    user.value = session?.user || null;
+    if (event === "PASSWORD_RECOVERY") {
+      authMode.value = "update";
+      user.value = session?.user || null;
+    } else if (user.value) {
+      await loadTasks();
+      subscribeRealtime();
+    } else {
+      tasks.value = [];
+      if (realtimeChannel.value) supabase.removeChannel(realtimeChannel.value);
+      realtimeChannel.value = null;
+    }
+  });
+  authSubscription = listener.subscription;
+  loading.value = false;
+});
+onBeforeUnmount(() => {
+  authSubscription?.unsubscribe();
+  if (reminderTimer.value) window.clearInterval(reminderTimer.value);
+  if (realtimeChannel.value) supabase.removeChannel(realtimeChannel.value);
+});
+</script>
